@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: go.sum
+      - name: Build
+        run: go build -o bin/relvo ./cmd/relvo
+      - name: Vet
+        run: go vet ./...
+      - name: Race tests
+        run: go test -race ./...
+
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mysql:8.0
+            admin: mysqladmin
+          - image: mariadb:11.4
+            admin: mariadb-admin
+    services:
+      database:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: relvo-ci-only
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: relvo_test
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="${{ matrix.admin }} ping -h 127.0.0.1 -uroot -prelvo-ci-only --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+      - name: Database integration
+        env:
+          RELVO_TEST_DSN: root:relvo-ci-only@tcp(127.0.0.1:${{ job.services.database.ports[3306] }})/relvo_test?tls=false
+        run: go test -race -count=1 -run TestIntegration -v ./internal/database/mysql

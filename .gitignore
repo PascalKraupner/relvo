@@ -1,0 +1,7 @@
+/relvo
+/bin/
+/tmp/
+/coverage.out
+.env
+.env.*
+!.env.example

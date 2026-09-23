@@ -1,0 +1,30 @@
+root = "."
+tmp_dir = "tmp"
+env_files = []
+
+[build]
+cmd = "bash -o pipefail -c '(go build -o ./tmp/relvo ./cmd/relvo && go build -o ./tmp/dev-run ./scripts/dev) 2>&1 | tee ./tmp/build.log'"
+entrypoint = ["./tmp/dev-run"]
+include_ext = ["go"]
+include_file = ["go.mod", "go.sum"]
+exclude_dir = ["bin", "tmp", "vendor", "testdata"]
+exclude_regex = ["_test\\.go"]
+exclude_unchanged = true
+delay = 250
+send_interrupt = true
+kill_delay = "3s"
+stop_on_error = true
+log = "air-error.log"
+
+[log]
+silent = true
+
+[misc]
+clean_on_exit = false
+startup_banner = ""
+
+[screen]
+clear_on_rebuild = false
+
+[proxy]
+enabled = false
