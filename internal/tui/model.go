@@ -451,7 +451,13 @@ func (m *model) clamp() {
 		width -= m.columnWidth(m.left)
 		m.left++
 	}
-	m.structureTop = max(0, min(m.structureTop, max(0, len(m.structureLines())-m.bodyHeight())))
+	for m.left > 0 && width+m.columnWidth(m.left-1) <= m.gridWidth() {
+		m.left--
+		width += m.columnWidth(m.left)
+	}
+	if m.tab == 1 {
+		m.structureTop = max(0, min(m.structureTop, max(0, len(m.structureLines())-m.bodyHeight())))
+	}
 }
 
 func bound(n, length int) int { return max(0, min(n, length-1)) }
@@ -469,9 +475,15 @@ func (m *model) resizeInputs() {
 	m.input.SetWidth(max(1, w-3))
 	m.sql.SetWidth(w)
 	m.sql.SetHeight(max(1, m.height-9))
+	_, _, panelWidth, _ := m.panelBounds()
+	inner := max(1, panelWidth-2)
 	for i := range m.fields {
 		m.fields[i].SetStyles(inputStyles)
-		m.fields[i].SetWidth(max(1, w-3))
+		if inner < 46 {
+			m.fields[i].SetWidth(max(1, inner-4))
+		} else {
+			m.fields[i].SetWidth(max(1, inner-min(20, max(12, inner/4))-3))
+		}
 	}
 }
 
@@ -506,18 +518,36 @@ func (m *model) click(mouse tea.Mouse) tea.Cmd {
 	}
 	m.focus = 1
 	if y == 1 {
-		switch {
-		case x-sw < 9:
-			m.tab = 0
-		case x-sw < 23:
-			m.tab = 1
-		default:
-			return m.openSQL(false)
+		pos := 0
+		for tab, label := range tabLabels {
+			pos += len(label)
+			if x-sw < pos {
+				if tab == 2 {
+					return m.openSQL(false)
+				}
+				m.tab = tab
+				m.clamp()
+				return nil
+			}
 		}
 		return nil
 	}
 	if m.tab != 0 {
 		return nil
+	}
+	if y == 3 {
+		left, right := m.hiddenColumns()
+		switch {
+		case left > 0 && x == sw:
+			m.col = left - 1
+			m.clamp()
+			return nil
+		case right > 0 && x == m.width-1:
+			visible := m.visibleColumns()
+			m.col = visible[len(visible)-1].index + 1
+			m.clamp()
+			return nil
+		}
 	}
 	pos := sw
 	for _, column := range m.visibleColumns() {

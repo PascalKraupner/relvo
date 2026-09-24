@@ -230,14 +230,5 @@ func (m *model) helpOverlay(background string) string {
 	for len(lines) < h {
 		lines = append(lines, line(plain.Render(strings.Repeat(" ", inner))))
 	}
-	canvas := lipgloss.NewCanvas(m.width, m.height)
-	canvas.Compose(lipgloss.NewCompositor(lipgloss.NewLayer(background), lipgloss.NewLayer(strings.Join(lines, "\n")).X(x).Y(y)))
-	composed := strings.Split(canvas.Render(), "\n")
-	for i := range composed {
-		composed[i] = fit(composed[i], m.width)
-	}
-	for len(composed) < m.height {
-		composed = append(composed, fit("", m.width))
-	}
-	return strings.Join(composed[:m.height], "\n")
+	return m.composeOverlay(background, strings.Join(lines, "\n"), x, y)
 }

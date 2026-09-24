@@ -21,7 +21,7 @@ func (m *model) theme() theme {
 	if m.light {
 		fg, muted, accent, bg, side, surface, selection, danger = "#243D51", "#5B7183", "#126D70", "#EDF3F6", "#DDEAF0", "#F7FBFC", "#BEDBE3", "#A43D36"
 	}
-	if m.modal == "help" {
+	if m.modal == "help" || m.modal == "inspect" || m.modal == "profile" || m.modal == "env" {
 		fg, accent = muted, muted
 	}
 	return theme{
@@ -161,6 +161,14 @@ func (m *model) visibleColumns() []visibleColumn {
 	return cols
 }
 
+func (m *model) hiddenColumns() (left, right int) {
+	visible := m.visibleColumns()
+	if len(visible) == 0 {
+		return 0, 0
+	}
+	return visible[0].index, len(m.snap.Result.Columns) - visible[len(visible)-1].index - 1
+}
+
 func (m *model) columnsWidth(start, end int) int {
 	w := 0
 	for c := start; c <= end && c < len(m.snap.Result.Columns); c++ {
@@ -192,7 +200,8 @@ func (m *model) View() tea.View {
 	}
 	header := " RELVO  [" + access + "]  " + current + "  |  " + connection + state
 	lines := []string{t.active.Render(fit(header, m.width))}
-	if m.modal != "" && m.modal != "help" {
+	floating := m.modal == "help" || m.modal == "inspect" || m.modal == "profile" || m.modal == "env"
+	if m.modal != "" && !floating {
 		lines = append(lines, m.modalLines()...)
 	} else {
 		sw, gw := m.sidebarWidth(), m.gridWidth()
@@ -206,12 +215,7 @@ func (m *model) View() tea.View {
 		if m.focus == 0 {
 			sideTitle = " > TABLES"
 		}
-		tabs := " Data    Structure     SQL"
-		if m.tab == 0 {
-			tabs = " [Data]  Structure     SQL"
-		} else {
-			tabs = " Data    [Structure]   SQL"
-		}
+		tabs := m.tabBar(gw)
 		if sw == m.width {
 			tabs = ""
 			gw = 0
@@ -236,14 +240,17 @@ func (m *model) View() tea.View {
 		if m.tab == 0 {
 			header = m.gridHeader()
 		} else {
-			header = t.surfaceAccent.Render(fit(" Column / Type / Nullable / Key / Default", gw))
+			header = m.structureHeader()
 		}
 		if gw == 0 {
 			header = ""
 		}
 		lines = append(lines, t.sideMuted.Render(fit(" / find  Enter open", sp))+separator+header)
 		ts := m.tables()
-		structure := m.structureLines()
+		var structure []string
+		if m.tab == 1 && gw > 0 {
+			structure = m.structureLines()
+		}
 		for y := 0; y < m.bodyHeight(); y++ {
 			side := ""
 			idx := m.tableTop + y
@@ -264,7 +271,7 @@ func (m *model) View() tea.View {
 			if gw > 0 {
 				if m.tab == 1 {
 					if y+m.structureTop < len(structure) {
-						body = safe(structure[y+m.structureTop])
+						body = structure[y+m.structureTop]
 					}
 					body = t.surface.Render(fit(body, gw))
 				} else {
@@ -329,6 +336,8 @@ func (m *model) View() tea.View {
 	content := strings.Join(lines, "\n")
 	if m.modal == "help" {
 		content = m.helpOverlay(content)
+	} else if m.modal == "inspect" || m.modal == "profile" || m.modal == "env" {
+		content = m.panelOverlay(content)
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
@@ -337,11 +346,52 @@ func (m *model) View() tea.View {
 	return v
 }
 
+var tabLabels = []string{" 1 Data ", " 2 Structure ", " 3 SQL "}
+
+func (m *model) tabs() string {
+	t := m.theme()
+	var tabs strings.Builder
+	for i, label := range tabLabels {
+		if i == m.tab {
+			tabs.WriteString(t.active.Render(label))
+		} else {
+			tabs.WriteString(t.surfaceMuted.Render(label))
+		}
+	}
+	return tabs.String()
+}
+
+func (m *model) tabBar(width int) string {
+	t := m.theme()
+	tabs := m.tabs()
+	if m.tab == 0 && width > 0 {
+		left, right := m.hiddenColumns()
+		var hints []string
+		if left > 0 {
+			hints = append(hints, fmt.Sprintf("‹ %d more", left))
+		}
+		if right > 0 {
+			hints = append(hints, fmt.Sprintf("%d more ›", right))
+		}
+		hint := strings.Join(hints, "   ")
+		if hint != "" && width-ansi.StringWidth(tabs) >= ansi.StringWidth(hint)+2 {
+			return t.surfaceAccent.Render(fit(tabs, width-ansi.StringWidth(hint))) + t.surfaceAccent.Render(hint)
+		}
+	}
+	return t.surfaceAccent.Render(fit(tabs, width))
+}
+
 func (m *model) gridHeader() string {
 	t := m.theme()
 	var b strings.Builder
 	width := 0
-	for _, col := range m.visibleColumns() {
+	visible := m.visibleColumns()
+	left, right := 0, 0
+	if len(visible) > 0 {
+		left = visible[0].index
+		right = len(m.snap.Result.Columns) - visible[len(visible)-1].index - 1
+	}
+	for i, col := range visible {
 		c, w := col.index, col.width
 		name := previewText(m.snap.Result.Columns[c])
 		if m.snap.Browse.Sort == m.snap.Result.Columns[c] {
@@ -351,7 +401,29 @@ func (m *model) gridHeader() string {
 				name += " ^"
 			}
 		}
-		cell := fit(" "+name, w)
+		prefix, suffix := " ", ""
+		if i == 0 && left > 0 {
+			prefix = "‹ "
+		}
+		if i == len(visible)-1 && right > 0 {
+			suffix = " ›"
+		}
+		cell := ""
+		if w < ansi.StringWidth(prefix)+ansi.StringWidth(suffix) {
+			switch {
+			case left > 0 && right > 0 && w >= 2:
+				cell = "‹" + strings.Repeat(" ", w-2) + "›"
+			case right > 0:
+				cell = fit("›", w)
+			case left > 0:
+				cell = fit("‹", w)
+			default:
+				cell = fit("", w)
+			}
+		} else {
+			contentWidth := max(0, w-ansi.StringWidth(suffix))
+			cell = fit(prefix+ansi.Truncate(name, max(0, contentWidth-ansi.StringWidth(prefix)), "…"), contentWidth) + suffix
+		}
 		if c == m.col && m.focus == 1 {
 			b.WriteString(t.active.Render(cell))
 		} else {
@@ -386,30 +458,6 @@ func (m *model) gridRow(r int) string {
 	return t.surface.Render(fit(b.String(), m.gridWidth()))
 }
 
-func (m *model) structureLines() []string {
-	var out []string
-	for _, c := range m.snap.Schema.Columns {
-		def := "NULL"
-		if c.Default != nil {
-			def = *c.Default
-		}
-		out = append(out, fmt.Sprintf(" %s  %s  nullable:%t  %s  default:%s  %s", c.Name, c.Type, c.Nullable, c.Key, def, c.Extra))
-	}
-	out = append(out, "", " INDEXES")
-	for _, i := range m.snap.Schema.Indexes {
-		out = append(out, fmt.Sprintf(" %s (%s) unique:%t", i.Name, strings.Join(i.Columns, ", "), i.Unique))
-	}
-	out = append(out, "", " FOREIGN KEYS")
-	for _, fk := range m.snap.Schema.ForeignKeys {
-		target := fk.Table + "." + fk.Target
-		if fk.Database != "" {
-			target = fk.Database + "." + target
-		}
-		out = append(out, fmt.Sprintf(" %s: %s -> %s", fk.Name, fk.Column, target))
-	}
-	return out
-}
-
 func (m *model) modalHint() string {
 	switch m.modal {
 	case "sql", "write":
@@ -432,7 +480,7 @@ func (m *model) modalHint() string {
 
 func (m *model) modalLines() []string {
 	t := m.theme()
-	title := map[string]string{"sql": "SQL / read query", "write": "SQL / stage write", "connections": "Connections", "profile": "New connection / memory only, never saved", "env": "Environment file / custom variable mapping", "find": "Find table / fuzzy subsequence", "palette": "Commands", "inspect": fmt.Sprintf("Row %d / full values", m.row+1), "help": "Help", "approve": "WRITE CONFIRMATION / local approval only"}[m.modal]
+	title := map[string]string{"sql": "SQL / read query", "write": "SQL / stage write", "connections": "Connections", "find": "Find table / fuzzy subsequence", "palette": "Commands", "approve": "WRITE CONFIRMATION / local approval only"}[m.modal]
 	if m.modal == "filter" {
 		title = m.filterTitle()
 	}
@@ -440,27 +488,7 @@ func (m *model) modalLines() []string {
 	switch m.modal {
 	case "sql", "write":
 		lines = append(lines, strings.Split(m.sql.View(), "\n")...)
-	case "profile", "env":
-		labels := profileLabels
-		if m.modal == "env" {
-			labels = envLabels
-		}
-		// A compact field summary keeps the active input visible on small screens.
-		lines = append(lines, t.muted.Render(fmt.Sprintf(" Field %d / %d: %s", m.field+1, len(labels), labels[m.field])), " "+m.fields[m.field].View(), "")
-		room := max(0, m.height-11)
-		start := max(0, min(m.field-room/2, len(labels)-room))
-		for i := start; i < min(len(labels), start+room); i++ {
-			value := safe(m.fields[i].Value())
-			if m.modal == "profile" && i == 4 && value != "" {
-				value = "********"
-			}
-			prefix := "   "
-			if i == m.field {
-				prefix = " > "
-			}
-			lines = append(lines, t.muted.Render(prefix+labels[i]+": "+value))
-		}
-	case "inspect", "help", "approve":
+	case "approve":
 		doc := m.documentLines()
 		h := max(1, m.height-6)
 		if m.modal == "approve" {

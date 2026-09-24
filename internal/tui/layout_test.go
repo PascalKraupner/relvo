@@ -52,6 +52,64 @@ func TestGridDistributesWidthAndKeepsMouseColumnsAligned(t *testing.T) {
 	}
 }
 
+func TestHiddenColumnsShowBothEdgesAndRespondToClicks(t *testing.T) {
+	m, a := fixture()
+	m.focus = 1
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	left, right := m.hiddenColumns()
+	if left != 0 || right == 0 {
+		t.Fatalf("expected hidden columns on right: left=%d right=%d", left, right)
+	}
+	first := ansi.Strip(m.gridHeader())
+	if !strings.HasSuffix(first, "›") || strings.HasPrefix(first, "‹") {
+		t.Fatalf("right overflow indicator missing: %q", first)
+	}
+	if !strings.Contains(ansi.Strip(m.View().Content), "more ›") {
+		t.Fatal("top bar did not show hidden-column count")
+	}
+	// The last cell of the header is the chevron; clicking it navigates, not sorts.
+	m.click(tea.Mouse{X: m.width - 1, Y: 3, Button: tea.MouseLeft})
+	left, right = m.hiddenColumns()
+	if left == 0 || right == 0 || m.col != left+len(m.visibleColumns())-1 || len(a.actions) != 0 {
+		t.Fatalf("right edge did not reveal a column: col=%d left=%d right=%d actions=%v", m.col, left, right, a.actions)
+	}
+	both := ansi.Strip(m.gridHeader())
+	if !strings.HasPrefix(both, "‹") || !strings.HasSuffix(both, "›") {
+		t.Fatalf("expected indicators on both sides: %q", both)
+	}
+	if !strings.Contains(ansi.Strip(m.View().Content), "‹ 1 more") {
+		t.Fatal("top bar did not show left-side count")
+	}
+	m.click(tea.Mouse{X: m.sidebarWidth(), Y: 3, Button: tea.MouseLeft})
+	if m.left != 0 || m.col != 0 || len(a.actions) != 0 {
+		t.Fatal("left indicator did not scroll back without sorting")
+	}
+	m.Update(tea.WindowSizeMsg{Width: 220, Height: 24})
+	left, right = m.hiddenColumns()
+	if left != 0 || right != 0 || strings.Contains(ansi.Strip(m.gridHeader()), "›") {
+		t.Fatal("overflow indicator remained when all columns fit")
+	}
+}
+
+func TestOverflowIndicatorsAdaptToNarrowGrid(t *testing.T) {
+	m, _ := fixture()
+	m.focus = 1
+	for _, width := range []int{32, 12, 3, 1} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 12})
+		m.col = min(len(m.snap.Result.Columns)-1, width/12+1)
+		m.clamp()
+		view := m.View().Content
+		for _, line := range strings.Split(view, "\n") {
+			if ansi.StringWidth(line) != width {
+				t.Fatalf("width %d: misaligned line", width)
+			}
+		}
+		if width >= 3 && !strings.Contains(ansi.Strip(m.gridHeader()), "‹") {
+			t.Fatalf("narrow grid lost left indicator at width %d", width)
+		}
+	}
+}
+
 func TestFloatingHelpKeepsContextAndFiltersBindings(t *testing.T) {
 	m, _ := fixture()
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 38})

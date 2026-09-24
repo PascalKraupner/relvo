@@ -83,6 +83,7 @@ func (m *model) showPending(p *app.PendingWrite) tea.Cmd {
 
 func (m *model) openProfile(env bool) tea.Cmd {
 	m.closeModal()
+	m.notice = ""
 	m.formID++
 	m.modal, m.field = "profile", 0
 	labels := profileLabels
@@ -173,6 +174,28 @@ func (m *model) updateModal(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 	}
+	if m.modal == "profile" || m.modal == "env" || m.modal == "inspect" {
+		if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
+			x, y, width, height := m.panelBounds()
+			if click.X < x || click.X >= x+width || click.Y < y || click.Y >= y+height || (click.Y == y+1 && click.X >= x+width-14) {
+				if m.setupBusy {
+					m.app.Cancel()
+				}
+				m.closeModal()
+				return nil
+			}
+			if (m.modal == "profile" || m.modal == "env") && !m.setupBusy && click.Y >= y+4 && click.Y < y+4+m.panelBodyHeight() {
+				rows := m.formRows(max(1, width-2))
+				index := m.formViewportStart(rows) + click.Y - y - 4
+				if index < len(rows) && rows[index].field >= 0 {
+					m.fields[m.field].Blur()
+					m.field = rows[index].field
+					return m.fields[m.field].Focus()
+				}
+			}
+			return nil
+		}
+	}
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		delta := 3
 		if wheel.Button == tea.MouseWheelUp {
@@ -233,6 +256,8 @@ func (m *model) updateModal(msg tea.Msg) tea.Cmd {
 			page := max(1, m.height-6)
 			if m.modal == "help" {
 				page = max(1, m.helpBodyHeight())
+			} else {
+				page = max(1, m.panelBodyHeight())
 			}
 			switch k {
 			case "j", "down":
@@ -307,10 +332,10 @@ func (m *model) updateModal(msg tea.Msg) tea.Cmd {
 			if k == "ctrl+s" || k == "ctrl+t" {
 				return m.submitProfile(k == "ctrl+t")
 			}
-			if k == "tab" || k == "enter" || k == "shift+tab" {
+			if k == "tab" || k == "enter" || k == "shift+tab" || k == "down" || k == "up" {
 				m.fields[m.field].Blur()
 				delta := 1
-				if k == "shift+tab" {
+				if k == "shift+tab" || k == "up" {
 					delta = -1
 				}
 				m.field = (m.field + delta + len(m.fields)) % len(m.fields)
@@ -461,6 +486,11 @@ func (m *model) scrollModal(delta int) {
 		m.modalTop = max(0, min(m.modalTop+delta, max(0, len(m.helpDisplayRows(max(0, w-2)))-m.helpBodyHeight())))
 		return
 	}
+	if m.modal == "inspect" {
+		_, _, width, _ := m.panelBounds()
+		m.modalTop = max(0, min(m.modalTop+delta, max(0, len(m.detailLines(max(1, width-2)))-m.panelBodyHeight())))
+		return
+	}
 	lines := m.documentLines()
 	h := max(1, m.height-6)
 	if m.modal == "approve" {
@@ -475,10 +505,6 @@ func (m *model) documentLines() []string {
 	case "help":
 		for _, row := range m.helpRows() {
 			lines = append(lines, row.keys+"  "+row.description)
-		}
-	case "inspect":
-		for c, name := range m.snap.Result.Columns {
-			lines = append(lines, name, m.selectedValue(m.row, c), "")
 		}
 	case "approve":
 		if m.pending != nil {
