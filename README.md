@@ -85,7 +85,7 @@ For direct configuration, supply `--host`, `--port` (default `3306`), `--user`, 
 
 ### Profiles and Sessions
 
-Press `n` for a manual connection or `e` for an environment-file mapping form. Tab moves between fields; Ctrl+s connects and adds the profile **in memory only** on success. Ctrl+t tests the draft without adding or saving it. Failed setup preserves fields for correction and does not reserve the profile name or replace the current connection. Neither form edits `.env` or persists profiles; dismissing a form drops its password-bearing fields.
+Press `n` for a manual connection or `e` for an environment-file mapping form. Tab, Shift+Tab, Up/Down, or a mouse click selects a field; Ctrl+s connects and adds the profile **in memory only** on success. Ctrl+t tests the draft without adding or saving it. Failed setup preserves fields for correction and does not reserve the profile name or replace the current connection. Neither form edits `.env` or persists profiles; dismissing a form drops its password-bearing fields.
 
 The manual form's TLS field defaults to `true`; enter `off` for a trusted local server without verified TLS. The `e` form's TLS field is a **variable name**, defaulting to `DB_TLS`, not a literal TLS override. Set `DB_TLS=off` in the private file (or map another variable containing `off`), or use CLI setup such as `relvo --env /path/to/.env --tls off`. Startup `--tls off` is not inherited by new `e` form drafts, and file TLS values take precedence over the CLI fallback.
 
@@ -131,7 +131,7 @@ Concurrent `connections add` calls use an interprocess `flock` around load, vali
 
 Mouse support includes table selection, tabs, column-header sorting, cell selection, scrolling, and footer pagination. Row inspectors and write confirmations scroll with PgUp/PgDown or the wheel. Composite primary-key lookup via `i` uses only the first key column; add further filters as needed.
 
-The data grid shares the available terminal width across visible columns; columns beyond the viewport remain reachable with `h`/`l`, arrow keys, and mouse selection. The sidebar and results have separate backgrounds and a visible divider. `?` opens a centered keybind overlay above the current table; press `/` there to search shortcuts, use arrows or PgUp/PgDown to scroll, and Esc to close (or clear an active search first).
+The data grid shares the available terminal width across visible columns. `‹` and `›` on the column header mark hidden columns on the left and right; the tab bar shows their counts when there is room. Use `h`/`l`, arrow keys, or click a header chevron to reveal them. The sidebar and results have separate backgrounds and a visible divider. The tabs show their number shortcuts: `1 Data`, `2 Structure`, `3 SQL`. Structure groups columns, indexes, and relationships. Enter opens row details in a scrollable overlay; `n` and `e` open connection forms that show the available fields together. `?` opens a centered keybind overlay above the current table; press `/` there to search shortcuts, use arrows or PgUp/PgDown to scroll, and Esc to close (or clear an active search first).
 
 Foreign-key navigation via `f` opens a listed target table in the same database with equality filters for every field of the constraint, including composite keys. It requires exact retained row values: NULL, binary, truncated, missing, or ambiguous keys cannot be followed. Cross-schema navigation is not supported.
 
